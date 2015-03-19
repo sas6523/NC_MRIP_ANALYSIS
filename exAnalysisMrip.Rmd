@@ -1,0 +1,506 @@
+---
+title: |-
+  Exploratory Data Analysis of
+   North Carolina MRIP Datasets
+   for 2013
+author: "Scott Smith"
+date: "Monday, February 23, 2015"
+output: pdf_document
+---
+
+
+#Synopsis  
+This study aims to examine the NOAA MRIP dataset from 2013 using exploratory data analysis.   
+Specific goals include:  
+
+1. Dividing the data into regions, North, South, and Central NC. Based on internal NCDMF divisions.  
+2. Analyze variation between regions for both angler specific and region specific trends.  
+3. Determine areas for improvement based on comparisons between regions.  
+
+
+#Data Processing  
+A majority of the data processing code has been left out of this document for readability. A document with full code is available on the GitHub repository listed below. The individual *.R files are also provided in the repository for reproducibility.  
+
+[www.GitHub.com/sas6523/NC_MRIP_ANALYSIS](www.GitHub.com/sas6523/NC_MRIP_ANALYSIS)  
+
+## Loading Data  
+Data is loaded into a temporary directory using download.file() and unzip().    
+```{r, echo=TRUE, warning=FALSE,error=FALSE, message=FALSE}
+library(plyr)
+##########################################################
+# Enter the year for which you wish to run the analysis. 
+# At the time of writing, valid dates: 2004-2013
+# Previous years used diferent MRFSS Datasets, 
+# which will not work here.
+year <- "2013"
+##########################################################
+
+# This is used as a marker for the date the data were downloaded
+today = as.Date(Sys.time())
+#today = gsub('-', '', today)
+
+# Form the url from the year variabl and the url template
+url <- paste0("http://www.st.nmfs.noaa.gov/st1/recreational/MRIP_Survey_Data/CSV/PS_", 
+              year, "_CSV.zip")
+
+# create a temporary directory
+td = tempdir()
+setwd(td)
+if(!exists(paste0("PS_", year, "_CSV.zip"))){
+        # create the placeholder file
+        tf = tempfile(tmpdir=td, fileext=".zip")
+        # download into the placeholder file
+        download.file(url, tf)
+        # Unzip the file into the temp directory
+        unzip(tf, exdir = td)
+}
+
+# Create a list of the filenames that were unzipped
+files <- list.files(td, pattern = ".csv")
+# Create a list of the names without .csv. This will correspond to our df names
+names <- gsub(pattern='\\.csv$', '', files, ignore.case=T)
+
+# Load the files we just unziped into dataframes in R
+for( i in 1:length(names)){
+        a <- paste(names[i], ' <- read.csv( file=\'', files[i], 
+                   '\', header=TRUE, sep=\',\')', sep='')
+        # print( a )
+        eval(parse( text=a ))   
+}
+```
+
+At this point, we need to verify that the files were read correctly:  
+
+* Files List:  
+** `r files`  
+* Data Frames List:  
+** `r names`  
+
+## Subset Data  
+Now that we have verified that the files were correctly read, we need to subset them based on the state of NC's FIPS code:  
+```{r subsetState, echo=TRUE, warning=FALSE,error=FALSE, message=FALSE}
+# Subset the df's where ST=='37' for fips code of State of North Carolina
+for (i in 1:length(names)){
+        b <- paste0(names[i], ' <-', names[i], '[', names[i], '$ST==\'37\',]')
+        eval(parse( text=b ))
+}
+```
+
+## Merge Data  
+Next, we need to merge the catch and trip data frames by ID_CODE. This will create one data frame with corresponding trip and catch data.  
+``` {r mergedata, echo=TRUE, warning=FALSE,error=FALSE, message=FALSE}
+# Create empty df's to later populate
+merged.w1 <- data.frame()
+merged.w2 <- data.frame()
+merged.w3 <- data.frame()
+merged.w4 <- data.frame()
+merged.w5 <- data.frame()
+merged.w6 <- data.frame()
+
+# This function merges the df's passed to it based on the ID_CODE variable
+mergeDf <- function(catch,trip, i){
+        b <- paste0('merged.w',i, ' <- merge(', paste0(catch),',', paste0(trip), 
+                    ', by=\'ID_CODE\')') 
+        return(eval(parse( text=b )))
+}
+
+# Merge catch and trip datasets by ID_CODE
+merged.w1 <- mergeDf(paste0('catch_', year, '1'), paste0('trip_', year, '1'), 1)
+merged.w2 <- mergeDf(paste0('catch_', year, '2'), paste0('trip_', year, '2'), 2)
+merged.w3 <- mergeDf(paste0('catch_', year, '3'), paste0('trip_', year, '3'), 3)
+merged.w4 <- mergeDf(paste0('catch_', year, '4'), paste0('trip_', year, '4'), 4)
+merged.w5 <- mergeDf(paste0('catch_', year, '5'), paste0('trip_', year, '5'), 5)
+merged.w6 <- mergeDf(paste0('catch_', year, '6'), paste0('trip_', year, '6'), 6)
+```
+
+## Cleaning Data  
+Now that the dataframes are merged, we need to do a little housekeeping, by dropping unused factors fromt he dataset, and arranging the data by descending ID_CODE.
+```{r housekeeping, echo=TRUE, warning=FALSE,error=FALSE, message=FALSE}
+# Redefine the common names as factors. This will drop unused levels.
+merged.w1$common <- factor(merged.w1$common)
+merged.w2$common <- factor(merged.w2$common)
+merged.w3$common <- factor(merged.w3$common)
+merged.w4$common <- factor(merged.w4$common)
+merged.w5$common <- factor(merged.w5$common)
+merged.w6$common <- factor(merged.w6$common)
+
+# arrange by ID_CODE
+merged.w1 <- arrange(merged.w1, desc(ID_CODE))
+merged.w2 <- arrange(merged.w2, desc(ID_CODE))
+merged.w3 <- arrange(merged.w3, desc(ID_CODE))
+merged.w4 <- arrange(merged.w4, desc(ID_CODE))
+merged.w5 <- arrange(merged.w5, desc(ID_CODE))
+merged.w6 <- arrange(merged.w6, desc(ID_CODE))
+```
+
+## Subset Data by County  
+Now we need to subset the merged data by NC Counties. Here we see a sample of the process, which is repeated for all regions, but not shown here for space considerations.  
+
+```{r subByCounty, echo=TRUE, warning=FALSE,error=FALSE, message=FALSE}
+# create vectors of county codes to subset by
+south <- c(19, 95, 129, 133, 141, 147)
+north <- c(15, 29, 41, 53, 55, 139, 143, 177, 187)
+central <- c(13, 31, 49, 137)
+
+#subset by county code into north and south NC
+merged.w1.south <- merged.w1[merged.w1$CNTY %in% south,]
+merged.w1.north <- merged.w1[merged.w1$CNTY %in% north,]
+merged.w1.central <- merged.w1[merged.w1$CNTY %in% central,]
+
+# Redefine the common names as factors. This will drop unused levels.
+merged.w1.south$common <- factor(merged.w1.south$common)
+merged.w1.north$common <- factor(merged.w1.north$common)
+merged.w1.central$common <- factor(merged.w1.central$common)
+
+# create a vector of fish names caught from each area
+unique.w1.south <- levels(merged.w1.south$common)
+unique.w1.north <- levels(merged.w1.north$common)
+unique.w1.central <- levels(merged.w1.central$common)
+
+# Create a vector of the number of unique fish species caught
+num.caught.south.w1 <- length(unique.w1.south)
+num.caught.north.w1 <- length(unique.w1.north)
+num.caught.central.w1 <- length(unique.w1.central)
+```
+
+```{r subByCountyFull, echo=FALSE, warning=FALSE,error=FALSE, message=FALSE}
+#subset by county code into north and south NC
+merged.w2.south <- merged.w2[merged.w2$CNTY %in% south,]
+merged.w2.north <- merged.w2[merged.w2$CNTY %in% north,]
+merged.w2.central <- merged.w2[merged.w2$CNTY %in% central,]
+
+# Redefine the common names as factors. This will drop unused levels.
+merged.w2.south$common <- factor(merged.w2.south$common)
+merged.w2.north$common <- factor(merged.w2.north$common)
+merged.w2.central$common <- factor(merged.w2.central$common)
+
+# create a vector of fish names caught from each area
+unique.w2.south <- levels(merged.w2.south$common)
+unique.w2.north <- levels(merged.w2.north$common)
+unique.w2.central <- levels(merged.w2.central$common)
+
+# Create a vector of the number of unique fish species caught
+num.caught.south.w2 <- length(unique.w2.south)
+num.caught.north.w2 <- length(unique.w2.north)
+num.caught.central.w2 <- length(unique.w2.central)
+
+#subset by county code into north and south NC
+merged.w3.south <- merged.w3[merged.w3$CNTY %in% south,]
+merged.w3.north <- merged.w3[merged.w3$CNTY %in% north,]
+merged.w3.central <- merged.w3[merged.w3$CNTY %in% central,]
+
+# Redefine the common names as factors. This will drop unused levels.
+merged.w3.south$common <- factor(merged.w3.south$common)
+merged.w3.north$common <- factor(merged.w3.north$common)
+merged.w3.central$common <- factor(merged.w3.central$common)
+
+# create a vector of fish names caught from each area
+unique.w3.south <- levels(merged.w3.south$common)
+unique.w3.north <- levels(merged.w3.north$common)
+unique.w3.central <- levels(merged.w3.central$common)
+
+# Create a vector of the number of unique fish species caught
+num.caught.south.w3 <- length(unique.w3.south)
+num.caught.north.w3 <- length(unique.w3.north)
+num.caught.central.w3 <- length(unique.w3.central)
+
+#subset by county code into north and south NC
+merged.w4.south <- merged.w4[merged.w4$CNTY %in% south,]
+merged.w4.north <- merged.w4[merged.w4$CNTY %in% north,]
+merged.w4.central <- merged.w4[merged.w4$CNTY %in% central,]
+
+# Redefine the common names as factors. This will drop unused levels.
+merged.w4.south$common <- factor(merged.w4.south$common)
+merged.w4.north$common <- factor(merged.w4.north$common)
+merged.w4.central$common <- factor(merged.w4.central$common)
+
+# create a vector of fish names caught from each area
+unique.w4.south <- levels(merged.w4.south$common)
+unique.w4.north <- levels(merged.w4.north$common)
+unique.w4.central <- levels(merged.w4.central$common)
+
+# Create a vector of the number of unique fish species caught
+num.caught.south.w4 <- length(unique.w4.south)
+num.caught.north.w4 <- length(unique.w4.north)
+num.caught.central.w4 <- length(unique.w4.central)
+
+#subset by county code into north and south NC
+merged.w5.south <- merged.w5[merged.w5$CNTY %in% south,]
+merged.w5.north <- merged.w5[merged.w5$CNTY %in% north,]
+merged.w5.central <- merged.w5[merged.w5$CNTY %in% central,]
+
+# Redefine the common names as factors. This will drop unused levels.
+merged.w5.south$common <- factor(merged.w5.south$common)
+merged.w5.north$common <- factor(merged.w5.north$common)
+merged.w5.central$common <- factor(merged.w5.central$common)
+
+# create a vector of fish names caught from each area
+unique.w5.south <- levels(merged.w5.south$common)
+unique.w5.north <- levels(merged.w5.north$common)
+unique.w5.central <- levels(merged.w5.central$common)
+
+# Create a vector of the number of unique fish species caught
+num.caught.south.w5 <- length(unique.w5.south)
+num.caught.north.w5 <- length(unique.w5.north)
+num.caught.central.w5 <- length(unique.w5.central)
+
+#subset by county code into north and south NC
+merged.w6.south <- merged.w6[merged.w6$CNTY %in% south,]
+merged.w6.north <- merged.w6[merged.w6$CNTY %in% north,]
+merged.w6.central <- merged.w6[merged.w6$CNTY %in% central,]
+
+# Redefine the common names as factors. This will drop unused levels.
+merged.w6.south$common <- factor(merged.w6.south$common)
+merged.w6.north$common <- factor(merged.w6.north$common)
+merged.w6.central$common <- factor(merged.w6.central$common)
+
+# create a vector of fish names caught from each area
+unique.w6.south <- levels(merged.w6.south$common)
+unique.w6.north <- levels(merged.w6.north$common)
+unique.w6.central <- levels(merged.w6.central$common)
+
+# Create a vector of the number of unique fish species caught
+num.caught.south.w6 <- length(unique.w6.south)
+num.caught.north.w6 <- length(unique.w6.north)
+num.caught.central.w6 <- length(unique.w6.central)
+```
+
+
+#Exploratory Analysis   
+With the processing done, we can start to analyze the data.  
+
+## Number of species reported per region  
+This includes all catch: A+B1+B2  
+
+```{r speciesDiversity, echo=TRUE, warning=FALSE,error=FALSE, message=FALSE}
+library(reshape2)
+library(ggplot2)
+
+# Create regional DF's for catch
+fish.count.central <- data.frame(num.caught.central.w1,num.caught.central.w2, 
+                                 num.caught.central.w3, num.caught.central.w4, num.caught.central.w5)
+names(fish.count.central) <- c("1", "2","3","4","5")
+fish.count.central <- melt(fish.count.central)
+names(fish.count.central) <- c("Wave","Species_Count")
+# Create regional DF's for catch
+fish.count.north <- data.frame(num.caught.north.w1,num.caught.north.w2, 
+                               num.caught.north.w3, num.caught.north.w4, num.caught.north.w5)
+names(fish.count.north) <- c("1", "2","3","4","5")
+fish.count.north <- melt(fish.count.north)
+names(fish.count.north) <- c("Wave","Species_Count")
+# Create regional DF's for catch
+fish.count.south <- data.frame(num.caught.south.w1,num.caught.south.w2, 
+                               num.caught.south.w3, num.caught.south.w4, num.caught.south.w5)
+names(fish.count.south) <- c("1", "2","3","4","5")
+fish.count.south <- melt(fish.count.south)
+names(fish.count.south) <- c("Wave","Species_Count")
+
+# Merge the datasets into one master NC df
+fish.count.1 <- merge(fish.count.north, fish.count.central, by="Wave")
+fish.count <- merge(fish.count.1, fish.count.south, by="Wave")
+names(fish.count) <- c("Wave", "North", "Central", "South")
+# Melt dataset into longform, tidy, dataset
+fish.count <- melt(fish.count)
+# Rename the variables
+names(fish.count) <- c("Wave", "Region","Count")
+
+plot2 <- ggplot(fish.count, aes(Wave, Count, fill=Wave)) + 
+        geom_bar(colour="black", stat="identity") +
+        scale_fill_brewer() +
+        facet_wrap(~ Region)+
+        xlab("Wave") + ylab("Number of Species Caught")+
+        ggtitle(paste("NC Species Diversity by Wave and Region", 
+                      merged.w1.central$YEAR.x[1]))
+print(plot2)
+```
+
+There does not appear to be much difference in the number of species identified by region. The Northern region had a mean of: `r mean(fish.count.north$Species_Count)`, while the south had a yearly mean of: `r mean(fish.count.south$Species_Count)`, and the central region has a yearly mean of: `r mean(fish.count.central$Species_Count)` Although small diffrence exist, these can be attributed to any number of factors other than interviewers skill at identifying fishes. The yearly mean species count for the state of NC in `r merged.w1.central$YEAR.x[1]` is: `r mean(fish.count$Count)`  
+  
+## Percentage of Fish Measured  
+
+One useful metric of performance can be found in the ratio of fishes measured (Type A) vs harvest (A+B1). The concept is that the interviewer is accounting for all harvest, but not observing all of them. This could be for a number of confounding reasons, including angler cooperation, or weather; however, any region trending less than 50% over the course of the year should raise some questions.  
+
+Here we show a snippet of code that we will run to compile this information. This snippet is for all waves across the Central region, and in the backgroud we will run all waves for all regions.  
+```{r percMeasured, echo=TRUE, warning=FALSE,error=FALSE, message=FALSE }
+
+for(i in 1:6){
+        a <- paste0("a.w",i, "<- sum(merged.w",i,".central$HARVEST)")
+        b <- paste0("b.w",i, "<- sum(merged.w",i,".central$CLAIM)")
+        b2 <- paste0("b2.w",i, "<- sum(merged.w",i,".central$RELEASE)")
+        eval(parse( text=a))
+        eval(parse( text=b))
+        eval(parse( text=b2))
+}
+```
+
+Next we create a dataframe of all of the variables collected:  
+```{r createDF, echo=TRUE, warning=FALSE,error=FALSE, message=FALSE}
+catch <- c(a.w1,b.w1,b2.w1,                        
+           a.w2,b.w2,b2.w2,
+           a.w3,b.w3,b2.w3,
+           a.w4,b.w4,b2.w4,
+           a.w5,b.w5,b2.w5,
+           a.w6,b.w6,b2.w6)
+
+type <- c("A","B1","B2",
+          "A","B1","B2",
+          "A","B1","B2",
+          "A","B1","B2",
+          "A","B1","B2",
+          "A","B1","B2")
+
+location <- c("Central","Central","Central",
+              "Central","Central","Central",
+              "Central","Central","Central",
+              "Central","Central","Central",
+              "Central","Central","Central",
+              "Central","Central","Central")
+
+wave <- c(1,1,1,2,2,2,3,3,3,4,4,4,5,5,5,6,6,6)
+
+# Add Wave1 to the df
+catch.df <- data.frame(type,catch,location,wave)
+```
+
+```{r createDFNoShow, echo=FALSE, warning=FALSE,error=FALSE, message=FALSE}
+for(i in 1:6){
+        a <- paste0("a.w",i, "<- sum(merged.w",i,".south$HARVEST)")
+        b <- paste0("b.w",i, "<- sum(merged.w",i,".south$CLAIM)")
+        b2 <- paste0("b2.w",i, "<- sum(merged.w",i,".south$RELEASE)")
+        eval(parse( text=a))
+        eval(parse( text=b))
+        eval(parse( text=b2))
+}
+catch <- c(a.w1,b.w1,b2.w1,                        
+           a.w2,b.w2,b2.w2,
+           a.w3,b.w3,b2.w3,
+           a.w4,b.w4,b2.w4,
+           a.w5,b.w5,b2.w5,
+           a.w6,b.w6,b2.w6)
+
+location <- c("South","South","South",
+              "South","South","South",
+              "South","South","South",
+              "South","South","South",
+              "South","South","South",
+              "South","South","South")
+
+# tempdf to hold the south data 
+temp.df <- data.frame(type,catch,location,wave)
+# row bind the central and southern data
+catch.df <- rbind(catch.df,temp.df)
+
+for(i in 1:6){
+        a <- paste0("a.w",i, "<- sum(merged.w",i,".north$HARVEST)")
+        b <- paste0("b.w",i, "<- sum(merged.w",i,".north$CLAIM)")
+        b2 <- paste0("b2.w",i, "<- sum(merged.w",i,".north$RELEASE)")
+        eval(parse( text=a))
+        eval(parse( text=b))
+        eval(parse( text=b2))
+}
+catch <- c(a.w1,b.w1,b2.w1,                        
+           a.w2,b.w2,b2.w2,
+           a.w3,b.w3,b2.w3,
+           a.w4,b.w4,b2.w4,
+           a.w5,b.w5,b2.w5,
+           a.w6,b.w6,b2.w6)
+
+location <- c("North","North","North",
+              "North","North","North",
+              "North","North","North",
+              "North","North","North",
+              "North","North","North",
+              "North","North","North")
+
+
+temp.df <- data.frame(type,catch,location,wave)
+
+catch.df <- rbind(catch.df,temp.df)
+names(catch.df) <- c("Type","Count","Region","Wave")
+```
+Lastly, we will plot the catch type by region:  
+```{r percPlot, echo=TRUE, warning=FALSE,error=FALSE, message=FALSE}
+library(ggplot2)
+plot2 <- ggplot(catch.df, aes(Wave, Count, fill=Type)) + 
+        geom_bar(colour="black", stat="identity") +
+        #scale_fill_brewer() +
+        facet_wrap(~ Region)+
+        xlab("Wave") + ylab("Number of Fishes Caught")+
+        ggtitle(paste("NC-MRIP Type A,B1,B2 Catch \nby Wave and Region", 
+                      merged.w1.central$YEAR.x[1]))
+print(plot2)
+```
+
+To further explore the differences in fish landed vs fish landed and measured, we present the data as the percent of total catch measured by region.  
+
+First off, we create a function to return the catch values for each type, A, B1, B2:  
+
+```{r percTotCatchMeasured, echo=TRUE, warning=FALSE,error=FALSE, message=FALSE}
+calcPercent <- function(wave, type, region){
+        A <- (catch.df[catch.df$Wave==wave & catch.df$Type==type & catch.df$Region==region,2])
+        return(A)
+}
+```
+
+Then we feed the catch data from each region and wave to the function. Displayed here are just the data from the central region, the rest of the data will be crunched in the background:  
+
+```{r perTotCatchCont, echo=TRUE, warning=FALSE,error=FALSE, message=FALSE}
+for (i in 1:6){
+        A <- calcPercent(i,"A","Central")
+        B1 <- calcPercent(i,"B1","Central")
+        B2 <- calcPercent(i,"B2","Central")
+        b <- paste0("percent.central.w",i, "<- (A/(A+B1)*100)")
+        eval(parse( text=b))
+}
+```
+
+```{r perTotCatchContHidden, echo=FALSE, warning=FALSE,error=FALSE, message=FALSE}
+for (i in 1:6){
+        A <- calcPercent(i,"A","South")
+        B1 <- calcPercent(i,"B1","South")
+        B2 <- calcPercent(i,"B2","South")
+        b <- paste0("percent.south.w",i, "<- (A/(A+B1)*100)")
+        eval(parse( text=b))
+}
+
+for (i in 1:6){
+        A <- calcPercent(i,"A","North")
+        B1 <- calcPercent(i,"B1","North")
+        B2 <- calcPercent(i,"B2","North")
+        b <- paste0("percent.north.w",i, "<- (A/(A+B1)*100)")
+        eval(parse( text=b))
+}
+```
+
+Lastly, we create and melt a dataframe into a plottable format:  
+```{r cleanCatchPercPer, echo=TRUE, warning=FALSE,error=FALSE, message=FALSE}
+# Create vectors of the calculated percentages for each region
+percentscentral <- c(percent.central.w1,percent.central.w2,percent.central.w3,percent.central.w4,percent.central.w5,percent.central.w6)
+percentssouth <- c(percent.south.w1,percent.south.w2,percent.south.w3,percent.south.w4,percent.south.w5,percent.south.w6)
+percentsnorth <- c(percent.north.w1,percent.north.w2,percent.north.w3,percent.north.w4,percent.north.w5,percent.north.w6)
+# Include the corresponding waves
+waves <- c(1,2,3,4,5,6)
+
+# Create a dataframe from the vectors
+percents.tot <- data.frame(waves, percentscentral, percentssouth, percentsnorth)
+names(percents.tot) <- c("Wave", "Central","South","North")
+
+# Rearrange (melt) the dataframe into long format. This is prefered by ggplot.
+percents.tot <- melt(percents.tot, id="Wave")
+names(percents.tot) <- c("Wave", "Region","Percent")
+```
+
+Then we plot the data:  
+```{r plotCatchPercPer, echo=TRUE, warning=FALSE,error=FALSE, message=FALSE}
+plot3 <- ggplot(percents.tot, aes(Wave, Percent, fill=Wave)) + 
+        geom_bar(colour="black", stat="identity") +
+        #scale_fill_brewer() +
+        facet_wrap(~ Region)+
+        xlab("Wave") + ylab("Percent of Total Catch Measured(A/(A+B1))*100")+
+        ggtitle(paste("NC-MRIP Percent of Total Catch Measured \nby Wave and Region", merged.w1.central$YEAR.x[1]))
+print(plot3)
+```
+
+##Number of Intercepts by Mode and Region  
+In this section we show the number of intercepts acheived per mode by region.  
+
