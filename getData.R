@@ -1,11 +1,11 @@
-require(plyr)
+library(plyr)
 
 ##########################################################
 # Enter the year for which you wish to run the analysis. 
 # At the time of writing, valid dates: 2004-2013
 # Previous years used diferent MRFSS Datasets, 
 # which will not work here.
-year <- "2013"
+year <- "2005"
 ##########################################################
 
 # This is used as a marker for the date the data were downloaded
@@ -105,7 +105,6 @@ for (i in 1:6){
         eval(parse( text=j ))
         eval(parse( text=k ))
         eval(parse( text=l ))
-
 }
 
 
